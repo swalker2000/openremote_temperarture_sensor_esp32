@@ -2,6 +2,8 @@
 #include <WiFiClientSecure.h>
 #include <MQTT.h>
 #include "secret.h"
+#include <OneWire.h>//serch by name
+#include <DallasTemperature.h>//serch by name
 
 
 //----------secret.h----------------
@@ -13,12 +15,22 @@
 //const char* username = "master:username"; 
 //const char* mqttpass = "*****"; 
 //const char* clientID = "";
+//#define K_PODGONA 100
 //----------secret.h----------------
 
 WiFiClientSecure net;
 MQTTClient client;
 
 unsigned long lastMillis = 0;
+
+// GPIO where the DS18B20 is connected to
+const int oneWireBus = 4;     
+
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(oneWireBus);
+
+// Pass our oneWire reference to Dallas Temperature sensor 
+DallasTemperature sensors(&oneWire);
 
 void connect() {
   Serial.print("checking wifi...");
@@ -45,25 +57,23 @@ void setup() {
   WiFi.begin(ssid, pass);
   client.begin(mqtt_server, 8883, net);
   client.onMessage(messageReceived);
-  //pinMode(25, INPUT);
+  pinMode(25, OUTPUT);
+  digitalWrite(25, LOW);
   connect();
 }
 
 void loop() {
 
 loopAndReconnect();
-  if (millis() - lastMillis > 1000*60) {
+  if (millis() - lastMillis > 1000*10) {
     lastMillis = millis();
-    int value = analogRead(34);
-    
-    Serial.print("Value : "); Serial.print(value);
-    int temp = getTemperatureFromAnalogRead(value);
-    Serial.print(", temperature : "); Serial.println(temp);
+    sensors.requestTemperatures(); 
+    float temp = sensors.getTempCByIndex(0);
     String temperatureStr = String(temp);
     loopAndReconnect();
     client.publish(publicTopic, temperatureStr.c_str());
     //delay(100);
-    //Serial.println("Published"); 
+    Serial.print("Temperature : "); Serial.println(temp); 
   }
 }
 
@@ -76,43 +86,3 @@ void loopAndReconnect()
     connect();
   }
 }
-
-  #define MAX_READ  4095
-  #define TEMP_STEP  5
-  #define MIN_TEMP -55
-  #define ZERRO 273//абсолютный 0
-  //все хначения умножены на MAX_READ (4095)
-  long rtTable[] = {394349, 274406, 193161, 137797, 99345,//-55 -35
-                    72482,  53399,  39750,  29865,  22658,//-30 -1
-                    17330,  13370,  10397,  8149,   6433, //-5 15
-                    5115,   4095,   3299,   2674,   2181, //20 40
-                    1789,   1475,   1223,   1019,   853,  //45 65
-                    717,    606,    515,    439,    376,  //70 90
-                    323,    278,    241,    209,    182,  //95 115
-                    159,    140,    123,    109,    96,   //120 140
-                    85,     76,     68};                  //145 155
-
-int rtTableLength =43;
-
-
-
-int getTemperatureFromAnalogRead(int valueLow)
-{
-  int valueHigh = MAX_READ-valueLow;
-  long rtValue = long(MAX_READ*long(valueLow))/long(valueHigh);
-  for (int i=0; i<rtTableLength-1; i++)
-  {
-    if (rtValue<rtTable[i])
-    {
-        int stepRt = rtTable[i]- rtTable[i+1];
-        int deltaValue = rtTable[i]- rtValue;
-        int dt=(deltaValue*TEMP_STEP)/stepRt;
-        int t = MIN_TEMP+TEMP_STEP*i+dt;
-        return t;
-    }
-  }
-  return 160;
-
-
-}
-
